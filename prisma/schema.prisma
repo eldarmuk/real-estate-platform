@@ -13,23 +13,14 @@ model Listing {
   source             String   @default("adresowo.pl")
   propertyType       String?
   transactionType    String?
-  marketType         String?
   location           String?
   price              Float?
-  priceMin           Float?
-  priceMax           Float?
   pricePerSqm        Float?
   sizeSqm            Float?
-  surfaceMinSqm      Float?
-  surfaceMaxSqm      Float?
   plotSizeSqm        Float?
   constructionYear   Int?
   rooms              Int?
-  roomsMin           Int?
-  roomsMax           Int?
-  floor              String?
   houseType          String?
-  submissionDeadline String?
   imageUrl           String?
   rawDescription     String   @db.Text
   rawAttributes      Json?
