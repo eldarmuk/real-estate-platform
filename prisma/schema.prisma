@@ -7,12 +7,31 @@ datasource db {
 }
 
 model Listing {
-  id             Int      @id @default(autoincrement())
-  title          String
-  url            String   @unique
-  price          Float?   
-  sizeSqm        Float?   
-  location       String?  
-  rawDescription String   @db.Text 
-  createdAt      DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  title              String
+  url                String   @unique
+  source             String   @default("tabelaofert.pl")
+  propertyType       String?
+  transactionType    String?
+  marketType         String?
+  location           String?
+  price              Float?
+  priceMin           Float?
+  priceMax           Float?
+  pricePerSqm        Float?
+  sizeSqm            Float?
+  surfaceMinSqm      Float?
+  surfaceMaxSqm      Float?
+  rooms              Int?
+  roomsMin           Int?
+  roomsMax           Int?
+  floor              String?
+  houseType          String?
+  submissionDeadline String?
+  imageUrl           String?
+  rawDescription     String   @db.Text
+  rawAttributes      Json?
+  scrapedAt          DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
