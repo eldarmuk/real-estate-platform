@@ -10,7 +10,7 @@ model Listing {
   id                 Int      @id @default(autoincrement())
   title              String
   url                String   @unique
-  source             String   @default("tabelaofert.pl")
+  source             String   @default("adresowo.pl")
   propertyType       String?
   transactionType    String?
   marketType         String?
@@ -22,6 +22,8 @@ model Listing {
   sizeSqm            Float?
   surfaceMinSqm      Float?
   surfaceMaxSqm      Float?
+  plotSizeSqm        Float?
+  constructionYear   Int?
   rooms              Int?
   roomsMin           Int?
   roomsMax           Int?
