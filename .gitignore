@@ -29,3 +29,6 @@ parcel-cache/
 
 # Package artifacts
 *.tgz
+
+# Prisma
+/src/generated/prisma
