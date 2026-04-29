@@ -1,0 +1,479 @@
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import type { CheerioAPI } from 'cheerio';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { prisma } from './prisma.js';
+
+const BASE_URL = 'https://adresowo.pl';
+const DEFAULT_START_URLS = [`${BASE_URL}/domy/`];
+
+const MAX_LISTINGS = Number(process.env.SCRAPE_LIMIT ?? 100);
+const REQUEST_DELAY_MS = Number(process.env.SCRAPE_DELAY_MS ?? 900);
+const HTML_DIR = process.env.ADRESOWO_HTML_DIR?.trim();
+const START_URLS = (process.env.ADRESOWO_START_URLS?.split(',') ?? DEFAULT_START_URLS)
+  .map((url) => url.trim())
+  .filter(Boolean);
+
+type ScrapedListing = {
+  title: string;
+  url: string;
+  source: string;
+  propertyType: string | null;
+  transactionType: string | null;
+  location: string | null;
+  price: number | null;
+  pricePerSqm: number | null;
+  sizeSqm: number | null;
+  plotSizeSqm: number | null;
+  constructionYear: number | null;
+  rooms: number | null;
+  houseType: string | null;
+  imageUrl: string | null;
+  rawDescription: string;
+  rawAttributes: Record<string, string | number | null>;
+};
+
+async function fetchHtml(url: string): Promise<string> {
+  const response = await axios.get<string>(url, {
+    timeout: 20_000,
+    headers: {
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.7',
+      'Cache-Control': 'no-cache',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+        '(KHTML, like Gecko) Chrome/124.0 Safari/537.36 RealEstateRecruitmentTask/1.0',
+    },
+  });
+
+  return response.data;
+}
+
+async function collectListingUrls(): Promise<string[]> {
+  const urls = new Set<string>();
+  const queue = [...START_URLS];
+  const visited = new Set<string>();
+
+  while (queue.length > 0 && urls.size < MAX_LISTINGS) {
+    const pageUrl = queue.shift();
+    if (!pageUrl || visited.has(pageUrl)) continue;
+
+    visited.add(pageUrl);
+    console.log(`Scanning: ${pageUrl}`);
+
+    if (isListingUrl(pageUrl)) {
+      urls.add(stripHash(pageUrl));
+      continue;
+    }
+
+    const html = await fetchHtml(pageUrl);
+    const $ = cheerio.load(html);
+
+    $('a[href]').each((_, element) => {
+      const absoluteUrl = toAdresowoPageUrl($(element).attr('href'));
+      if (!absoluteUrl) return;
+
+      if (isListingUrl(absoluteUrl)) {
+        urls.add(stripHash(absoluteUrl));
+        return;
+      }
+
+      if (isPaginationUrl(absoluteUrl) && !visited.has(absoluteUrl) && queue.length < 12) {
+        queue.push(stripHash(absoluteUrl));
+      }
+    });
+
+    await sleep(REQUEST_DELAY_MS);
+  }
+
+  return [...urls].slice(0, MAX_LISTINGS);
+}
+
+function toAdresowoPageUrl(href: string | undefined): string | null {
+  if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#')) return null;
+
+  try {
+    const url = new URL(href, BASE_URL);
+    if (url.hostname !== 'adresowo.pl') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isListingUrl(url: string): boolean {
+  return new URL(url).pathname.startsWith('/o/');
+}
+
+function isPaginationUrl(url: string): boolean {
+  const pathname = new URL(url).pathname;
+  return pathname === '/domy/' || /^\/domy\/f\d+\/?$/.test(pathname);
+}
+
+function stripHash(url: string): string {
+  const parsed = new URL(url);
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+async function importSavedHtmlListings(directory: string): Promise<number> {
+  const files = await collectHtmlFiles(directory);
+  console.log(`Importing saved Adresowo HTML from: ${directory}`);
+  console.log(`Found ${files.length} HTML files.`);
+
+  let saved = 0;
+  for (const file of files) {
+    if (saved >= MAX_LISTINGS) break;
+
+    const html = await readFile(file, 'utf8');
+    const url = inferUrlFromHtml(html) ?? `saved-html://${path.basename(file)}`;
+    const listing = parseListing(html, url);
+    if (!listing) {
+      console.log(`Skipped non-listing or incomplete HTML: ${file}`);
+      continue;
+    }
+
+    await saveListing(listing);
+    saved += 1;
+    console.log(`Saved ${saved}/${MAX_LISTINGS}: ${listing.title}`);
+  }
+
+  return saved;
+}
+
+async function collectHtmlFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectHtmlFiles(fullPath)));
+      continue;
+    }
+
+    if (entry.isFile() && /\.(html?|xhtml)$/i.test(entry.name)) {
+      files.push(fullPath);
+    }
+  }
+
+  return files;
+}
+
+function inferUrlFromHtml(html: string): string | null {
+  const $ = cheerio.load(html);
+  return firstNonEmpty(
+    $('link[rel="canonical"]').attr('href'),
+    getMeta($, 'og:url'),
+    $('[data-url]').first().attr('data-url'),
+  );
+}
+
+function parseListing(html: string, url: string): ScrapedListing | null {
+  const $ = cheerio.load(html);
+  const bodyText = cleanText($('body').text());
+  const pageTitle = cleanText($('title').text()).replace(/\s*\|\s*Adresowo\.pl\s*$/i, '');
+  const metaDescription = firstNonEmpty(getMeta($, 'description'), getMeta($, 'og:description'));
+  const jsonLd = extractJsonLdPlace($);
+
+  const title = firstNonEmpty(buildOfferTitle($), getMeta($, 'og:title'), pageTitle);
+  const rawDescription = firstNonEmpty(cleanText($('#description').text()), jsonLd.description, metaDescription);
+  if (!title || !rawDescription) return null;
+
+  const pricePerSqm = parsePricePerSqm(bodyText);
+  const price = parsePrice(pageTitle, bodyText, pricePerSqm);
+  const sizeSqm = parseSurface(pageTitle, metaDescription, rawDescription);
+  const plotSizeSqm = parsePlotSize(metaDescription, rawDescription, bodyText);
+  const constructionYear = parseConstructionYear(bodyText, rawDescription);
+  const rooms = parseRooms(metaDescription, rawDescription);
+  const rawAttributes = extractAttributes($);
+
+  rawAttributes.price = price;
+  rawAttributes.pricePerSqm = pricePerSqm;
+  rawAttributes.sizeSqm = sizeSqm;
+  rawAttributes.plotSizeSqm = plotSizeSqm;
+  rawAttributes.constructionYear = constructionYear;
+  rawAttributes.rooms = rooms;
+
+  return {
+    title,
+    url,
+    source: 'adresowo.pl',
+    propertyType: inferPropertyType(title, bodyText),
+    transactionType: normalizeLabel(`${pageTitle} ${bodyText}`).includes('wynajem') ? 'wynajem' : 'sprzedaz',
+    location: extractLocation($, jsonLd.address, title),
+    price,
+    pricePerSqm,
+    sizeSqm,
+    plotSizeSqm,
+    constructionYear,
+    rooms,
+    houseType: inferHouseType(title, bodyText),
+    imageUrl: extractImageUrl($),
+    rawDescription,
+    rawAttributes,
+  };
+}
+
+function buildOfferTitle($: CheerioAPI): string | null {
+  const header = $('#offer-navigation h1');
+  const category = cleanText(header.find('div').first().text());
+  const street = cleanText(header.find('span').eq(0).text());
+  const location = cleanText(header.find('span').eq(1).text());
+  return [category, street, location].filter(Boolean).join(' ').trim() || null;
+}
+
+function extractAttributes($: CheerioAPI): Record<string, string | number | null> {
+  const attributes: Record<string, string | number | null> = {};
+  const selectors = ['main section[aria-label]', '#offer-navigation'];
+
+  for (const selector of selectors) {
+    $(selector).each((_, element) => addAttributeFromText(attributes, cleanText($(element).text())));
+  }
+
+  return attributes;
+}
+
+function addAttributeFromText(attributes: Record<string, string | number | null>, text: string): void {
+  if (!text || text.length > 260) return;
+
+  for (const separator of [':', '\uff1a']) {
+    const index = text.indexOf(separator);
+    if (index <= 0) continue;
+
+    const label = text.slice(0, index).trim();
+    const value = text.slice(index + 1).trim();
+    if (label.length >= 2 && label.length <= 60 && value) {
+      attributes[normalizeLabel(label)] = value;
+    }
+  }
+}
+
+function parsePrice(title: string, text: string, pricePerSqm: number | null): number | null {
+  const titleMatch = normalizeLabel(normalizeNumericText(title)).match(/-\s*([\d\s,.]+)\s*(?:zl|pln)\s*$/i);
+  if (titleMatch?.[1]) return parsePolishNumber(titleMatch[1]);
+
+  const matches = [...normalizeLabel(normalizeNumericText(text)).matchAll(/([\d\s,.]+)\s*(?:zl|pln)\b/gi)]
+    .map((match) => parsePolishNumber(match[1] ?? ''))
+    .filter((value): value is number => value !== null);
+
+  return matches.find((value) => value !== pricePerSqm && value > 20_000) ?? null;
+}
+
+function parsePricePerSqm(text: string): number | null {
+  const match = normalizeLabel(normalizeNumericText(text)).match(/([\d\s,.]+)\s*zl\s*\/\s*m(?:2|\u00b2|kw\.?)/i);
+  return match?.[1] ? parsePolishNumber(match[1]) : null;
+}
+
+function parseSurface(...texts: Array<string | null | undefined>): number | null {
+  for (const text of texts) {
+    const normalized = normalizeNumericText(text ?? '');
+    const titleMatch = normalized.match(/-\s*(\d+(?:[,.]\d+)?)\s*m(?:2|\u00b2|kw\.?)(?:\s*-|$)/i);
+    if (titleMatch?.[1]) return Number(titleMatch[1].replace(',', '.'));
+
+    const descriptionMatch = normalizeLabel(normalized).match(/powierzchni(?:a)?(?: domu)?\s*(\d+(?:[,.]\d+)?)\s*m(?:2|kw)?/i);
+    if (descriptionMatch?.[1]) return Number(descriptionMatch[1].replace(',', '.'));
+  }
+
+  return null;
+}
+
+function parsePlotSize(...texts: Array<string | null | undefined>): number | null {
+  for (const text of texts) {
+    const match = normalizeLabel(text ?? '').match(
+      /(?:dzialk(?:a|i|e|ce)|plot|powierzchnia dzialki)[^0-9]{0,80}(\d+(?:[,.]\d+)?)\s*m/i,
+    );
+    if (match?.[1]) return Number(match[1].replace(',', '.'));
+  }
+
+  return null;
+}
+
+function parseConstructionYear(...texts: Array<string | null | undefined>): number | null {
+  for (const text of texts) {
+    const match = normalizeLabel(text ?? '').match(/(?:rok budowy|year of construction|wybudowan[yoa] w)\D*(19\d{2}|20\d{2})/);
+    if (match?.[1]) return Number(match[1]);
+  }
+
+  return null;
+}
+
+function parseRooms(...texts: Array<string | null | undefined>): number | null {
+  for (const text of texts) {
+    const match = normalizeLabel(text ?? '').match(/(\d+)\s*(?:pokoi|pokoje|pok\.?|rooms?)/i);
+    if (match?.[1]) return Number(match[1]);
+  }
+
+  return null;
+}
+
+function extractLocation($: CheerioAPI, jsonLdAddress: string | null, title: string): string | null {
+  const headerLocation = cleanText($('#offer-navigation h1 span').eq(1).text());
+  if (headerLocation) return headerLocation;
+
+  if (jsonLdAddress) {
+    const parts = jsonLdAddress.split(',').map((part) => part.trim());
+    return parts.slice(1, -1).join(', ') || parts[1] || null;
+  }
+
+  return title.match(/^Dom\s+([^,]+)/i)?.[1]?.trim() ?? null;
+}
+
+function inferPropertyType(title: string, text: string): string | null {
+  const haystack = normalizeLabel(`${title} ${text}`);
+  if (haystack.includes('dom')) return 'Dom';
+  if (haystack.includes('mieszkanie')) return 'Mieszkanie';
+  if (haystack.includes('dzialka')) return 'Dzialka';
+  return null;
+}
+
+function inferHouseType(title: string, text: string): string | null {
+  const haystack = normalizeLabel(`${title} ${text}`);
+  if (haystack.includes('blizniak')) return 'blizniak';
+  if (haystack.includes('wolnostojacy')) return 'wolnostojacy';
+  if (haystack.includes('szeregowy')) return 'szeregowy';
+  if (haystack.includes('siedlisko')) return 'siedlisko';
+  return null;
+}
+
+function extractImageUrl($: CheerioAPI): string | null {
+  const image = firstNonEmpty(getMeta($, 'og:image'), $('main img').first().attr('src'), $('main img').first().attr('data-src'));
+  if (!image) return null;
+
+  try {
+    return new URL(image, BASE_URL).toString();
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonLdPlace($: CheerioAPI): { address: string | null; description: string | null } {
+  for (const element of $('script[type="application/ld+json"]').toArray()) {
+    try {
+      const parsed = JSON.parse($(element).text()) as unknown;
+      const graph = isRecord(parsed) && Array.isArray(parsed['@graph']) ? parsed['@graph'] : [parsed];
+
+      for (const item of graph) {
+        if (!isRecord(item)) continue;
+
+        const address = isRecord(item.address) ? item.address.streetAddress : null;
+        const description = typeof item.description === 'string' ? item.description : null;
+        if (typeof address === 'string' || description) {
+          return { address: typeof address === 'string' ? address : null, description };
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return { address: null, description: null };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parsePolishNumber(value: string): number | null {
+  const normalized = value
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s/g, '')
+    .replace(',', '.')
+    .replace(/[^\d.]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeLabel(label: string): string {
+  return cleanText(label)
+    .replace(/ł/g, 'l')
+    .replace(/Ł/g, 'L')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function normalizeNumericText(text: string): string {
+  return text.replace(/\u00a0/g, ' ').replace(/[\u2013\u2014]/g, '-');
+}
+
+function cleanText(text: string | null | undefined): string {
+  return (text ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  return values.find((value) => value && value.trim().length > 0)?.trim() ?? null;
+}
+
+function getMeta($: CheerioAPI, name: string): string | null {
+  return cleanText(
+    $(`meta[name="${name}"]`).attr('content') ??
+      $(`meta[property="${name}"]`).attr('content') ??
+      $(`meta[property="og:${name}"]`).attr('content'),
+  );
+}
+
+async function saveListing(listing: ScrapedListing): Promise<void> {
+  await prisma.listing.upsert({
+    where: { url: listing.url },
+    update: {
+      ...listing,
+      scrapedAt: new Date(),
+    },
+    create: listing,
+  });
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function scrapeListings(): Promise<void> {
+  if (HTML_DIR) {
+    const saved = await importSavedHtmlListings(HTML_DIR);
+    console.log(`Saved HTML import complete. Saved ${saved} listings.`);
+    return;
+  }
+
+  console.log(`Starting Adresowo scraper. Target: ${MAX_LISTINGS} listings.`);
+  console.log(`Start URLs: ${START_URLS.join(', ')}`);
+
+  const urls = await collectListingUrls();
+  console.log(`Found ${urls.length} candidate listing URLs.`);
+
+  let saved = 0;
+  for (const url of urls) {
+    try {
+      console.log(`Fetching listing: ${url}`);
+      const html = await fetchHtml(url);
+      const listing = parseListing(html, url);
+
+      if (!listing) {
+        console.log(`Skipped listing with missing title/description: ${url}`);
+        continue;
+      }
+
+      await saveListing(listing);
+      saved += 1;
+      console.log(`Saved ${saved}/${MAX_LISTINGS}: ${listing.title}`);
+
+      if (saved >= MAX_LISTINGS) break;
+      await sleep(REQUEST_DELAY_MS);
+    } catch (error) {
+      console.error(`Failed to scrape ${url}`);
+      console.error(error instanceof Error ? error.message : error);
+    }
+  }
+
+  console.log(`Scraping complete. Saved ${saved} listings.`);
+}
+
+scrapeListings()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
