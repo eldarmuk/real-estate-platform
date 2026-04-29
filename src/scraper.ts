@@ -6,11 +6,25 @@ import path from 'node:path';
 import { prisma } from './prisma.js';
 
 const BASE_URL = 'https://adresowo.pl';
-const DEFAULT_START_URLS = [`${BASE_URL}/domy/`];
+const DEFAULT_START_URLS = [
+  `${BASE_URL}/domy/`,
+  `${BASE_URL}/domy/f2/`,
+  `${BASE_URL}/domy/f3/`,
+  `${BASE_URL}/domy/f4/`,
+  `${BASE_URL}/domy/f5/`,
+  `${BASE_URL}/mieszkania/`,
+  `${BASE_URL}/mieszkania/f2/`,
+  `${BASE_URL}/mieszkania/f3/`,
+];
 
 const MAX_LISTINGS = Number(process.env.SCRAPE_LIMIT ?? 100);
 const REQUEST_DELAY_MS = Number(process.env.SCRAPE_DELAY_MS ?? 900);
 const HTML_DIR = process.env.ADRESOWO_HTML_DIR?.trim();
+const CLI_ARGS = process.argv.slice(2).filter((arg) => arg !== '--');
+const SITEMAP_ENABLED = (process.env.SCRAPE_SITEMAP ?? 'false').toLowerCase() === 'true' || CLI_ARGS.includes('--sitemap');
+const CLEAN_ENABLED = (process.env.SCRAPE_CLEAN ?? 'false').toLowerCase() === 'true' || CLI_ARGS.includes('--clean');
+const QUEUE_LINK_LIMIT = Number(process.env.SCRAPE_QUEUE_LIMIT ?? 80);
+const CANDIDATE_TARGET = Number(process.env.SCRAPE_CANDIDATE_TARGET ?? Math.max(MAX_LISTINGS * 5, 300));
 const START_URLS = (process.env.ADRESOWO_START_URLS?.split(',') ?? DEFAULT_START_URLS)
   .map((url) => url.trim())
   .filter(Boolean);
@@ -54,8 +68,13 @@ async function collectListingUrls(): Promise<string[]> {
   const urls = new Set<string>();
   const queue = [...START_URLS];
   const visited = new Set<string>();
+  const existingSet = await getExistingListingUrlSet();
 
-  while (queue.length > 0 && urls.size < MAX_LISTINGS) {
+  if (SITEMAP_ENABLED) {
+    await seedFromSitemaps(queue);
+  }
+
+  while (queue.length > 0 && getNewUrlCount(urls, existingSet) < MAX_LISTINGS && urls.size < CANDIDATE_TARGET) {
     const pageUrl = queue.shift();
     if (!pageUrl || visited.has(pageUrl)) continue;
 
@@ -79,7 +98,7 @@ async function collectListingUrls(): Promise<string[]> {
         return;
       }
 
-      if (isPaginationUrl(absoluteUrl) && !visited.has(absoluteUrl) && queue.length < 12) {
+      if (isPaginationUrl(absoluteUrl) && !visited.has(absoluteUrl) && queue.length < QUEUE_LINK_LIMIT) {
         queue.push(stripHash(absoluteUrl));
       }
     });
@@ -87,7 +106,111 @@ async function collectListingUrls(): Promise<string[]> {
     await sleep(REQUEST_DELAY_MS);
   }
 
-  return [...urls].slice(0, MAX_LISTINGS);
+  const candidates = [...urls];
+  if (candidates.length === 0) return [];
+
+  const filtered = CLEAN_ENABLED ? candidates : candidates.filter((url) => !existingSet.has(url));
+  console.log(`Collected ${candidates.length} candidates, ${filtered.length} new after DB filtering.`);
+  return filtered.slice(0, MAX_LISTINGS);
+}
+
+async function fetchSitemapUrls(startUrl: string): Promise<string[]> {
+  const origin = new URL(startUrl).origin;
+  const tried: string[] = [new URL('/sitemap.xml', origin).toString(), new URL('/sitemap_index.xml', origin).toString()];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+
+  for (const sitemapUrl of tried) {
+    await collectFromSitemap(sitemapUrl, origin, urls, seen, 0);
+  }
+
+  return Array.from(new Set(urls)).filter(isListingUrl).slice(0, CANDIDATE_TARGET);
+}
+
+async function seedFromSitemaps(queue: string[]): Promise<void> {
+  console.log('Sitemap discovery enabled.');
+
+  for (const startUrl of START_URLS) {
+    try {
+      const discovered = await fetchSitemapUrls(startUrl);
+      for (const url of discovered) {
+        if (queue.length >= CANDIDATE_TARGET) return;
+        queue.push(stripHash(url));
+      }
+    } catch (error) {
+      console.warn('Sitemap fetch failed for', startUrl, error instanceof Error ? error.message : error);
+    }
+  }
+}
+
+async function collectFromSitemap(
+  sitemapUrl: string,
+  origin: string,
+  urls: string[],
+  seen: Set<string>,
+  depth: number,
+): Promise<void> {
+  if (seen.has(sitemapUrl) || depth > 3 || urls.length >= CANDIDATE_TARGET) return;
+  seen.add(sitemapUrl);
+
+  try {
+    const res = await axios.get<string>(sitemapUrl, { timeout: 10_000 });
+    if (res.status !== 200 || !res.data) return;
+
+    for (const loc of parseSitemapXml(res.data)) {
+      try {
+        const url = new URL(loc);
+        if (url.hostname !== new URL(origin).hostname) continue;
+
+        if (url.pathname.endsWith('.xml')) {
+          await collectFromSitemap(url.toString(), origin, urls, seen, depth + 1);
+        } else if (isListingUrl(url.toString())) {
+          urls.push(url.toString());
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    return;
+  }
+}
+
+function parseSitemapXml(xml: string): string[] {
+  return [...xml.matchAll(/<loc>([^<]+)<\/loc>/gi)]
+    .map((match) => match[1])
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim());
+}
+
+async function cleanExistingListings(): Promise<void> {
+  const result = await prisma.listing.deleteMany({ where: { source: 'adresowo.pl' } });
+  console.log(`Cleaned ${result.count} existing Adresowo listings.`);
+}
+
+async function getExistingListingUrlSet(): Promise<Set<string>> {
+  if (CLEAN_ENABLED) return new Set();
+
+  try {
+    const existing = await prisma.listing.findMany({
+      where: { source: 'adresowo.pl' },
+      select: { url: true },
+    });
+    return new Set(existing.map((listing) => listing.url));
+  } catch (error) {
+    console.warn('DB check for existing URLs failed:', error instanceof Error ? error.message : error);
+    return new Set();
+  }
+}
+
+function getNewUrlCount(urls: Set<string>, existingSet: Set<string>): number {
+  if (CLEAN_ENABLED) return urls.size;
+
+  let count = 0;
+  for (const url of urls) {
+    if (!existingSet.has(url)) count += 1;
+  }
+  return count;
 }
 
 function toAdresowoPageUrl(href: string | undefined): string | null {
@@ -108,7 +231,12 @@ function isListingUrl(url: string): boolean {
 
 function isPaginationUrl(url: string): boolean {
   const pathname = new URL(url).pathname;
-  return pathname === '/domy/' || /^\/domy\/f\d+\/?$/.test(pathname);
+  return (
+    pathname === '/domy/' ||
+    pathname === '/mieszkania/' ||
+    /^\/domy\/f\d+\/?$/.test(pathname) ||
+    /^\/mieszkania\/f\d+\/?$/.test(pathname)
+  );
 }
 
 function stripHash(url: string): string {
@@ -317,7 +445,7 @@ function extractLocation($: CheerioAPI, jsonLdAddress: string | null, title: str
     return parts.slice(1, -1).join(', ') || parts[1] || null;
   }
 
-  return title.match(/^Dom\s+([^,]+)/i)?.[1]?.trim() ?? null;
+  return title.match(/^(?:Dom|Mieszkanie)\s+([^,]+)/i)?.[1]?.trim() ?? null;
 }
 
 function inferPropertyType(title: string, text: string): string | null {
@@ -430,6 +558,10 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function scrapeListings(): Promise<void> {
+  if (CLEAN_ENABLED) {
+    await cleanExistingListings();
+  }
+
   if (HTML_DIR) {
     const saved = await importSavedHtmlListings(HTML_DIR);
     console.log(`Saved HTML import complete. Saved ${saved} listings.`);

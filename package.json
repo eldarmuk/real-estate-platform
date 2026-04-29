@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
     "dev": "nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm\" src/index.ts",
-    "scrape": "node --loader ts-node/esm src/scraper.ts"
+    "scrape": "npm run build --silent && node dist/src/scraper.js"
   },
   "keywords": [],
   "author": "",
