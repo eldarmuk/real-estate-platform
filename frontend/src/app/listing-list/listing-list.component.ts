@@ -147,7 +147,12 @@ export class ListingListComponent {
   }
 }
 
-function toNumber(value: string): number | null {
-  const parsed = Number(value);
-  return value.trim() && Number.isFinite(parsed) ? parsed : null;
+function toNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const parsed = Number(text.replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
 }
