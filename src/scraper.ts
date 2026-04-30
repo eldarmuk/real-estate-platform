@@ -449,9 +449,14 @@ function extractLocation($: CheerioAPI, jsonLdAddress: string | null, title: str
 }
 
 function inferPropertyType(title: string, text: string): string | null {
+  const titleOnly = normalizeLabel(title);
+  if (titleOnly.includes('mieszkanie')) return 'Mieszkanie';
+  if (titleOnly.includes('dom')) return 'Dom';
+  if (titleOnly.includes('dzialka')) return 'Dzialka';
+
   const haystack = normalizeLabel(`${title} ${text}`);
-  if (haystack.includes('dom')) return 'Dom';
   if (haystack.includes('mieszkanie')) return 'Mieszkanie';
+  if (haystack.includes('dom')) return 'Dom';
   if (haystack.includes('dzialka')) return 'Dzialka';
   return null;
 }
