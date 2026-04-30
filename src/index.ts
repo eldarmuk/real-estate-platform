@@ -1,5 +1,4 @@
 import 'dotenv/config'; 
-import type { Prisma } from '@prisma/client';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -137,14 +136,14 @@ app.get('/api/listings/:id', async (req, res) => {
   res.json(listing);
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
-
 const frontendDist = path.resolve(process.cwd(), 'frontend', 'dist', 'frontend', 'browser');
 app.use(express.static(frontendDist));
 app.get(/^(?!\/api).*/, (_req, res) => {
   res.sendFile(path.join(frontendDist, 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
 });
 
 function parseOptionalNumber(value: unknown): number | null {
@@ -190,21 +189,6 @@ async function findRecommendedListings(plan: AiSearchPlan): Promise<ListingItem[
   }
 
   return [];
-}
-
-function getListingOrder(sort: string): Prisma.ListingOrderByWithRelationInput {
-  switch (sort) {
-    case 'price-asc':
-      return { price: 'asc' };
-    case 'price-desc':
-      return { price: 'desc' };
-    case 'surface-desc':
-      return { sizeSqm: 'desc' };
-    case 'surface-asc':
-      return { sizeSqm: 'asc' };
-    default:
-      return { scrapedAt: 'desc' };
-  }
 }
 
 function buildLocationVariants(location: string): string[] {
