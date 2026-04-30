@@ -47,13 +47,7 @@ app.get('/api/listings', async (req, res) => {
   const filters: Prisma.ListingWhereInput[] = [];
 
   if (search) {
-    filters.push({
-      OR: [
-        { title: { contains: search } },
-        { location: { contains: search } },
-        { rawDescription: { contains: search } },
-      ],
-    });
+    filters.push(buildTextSearchFilter(search));
   }
 
   if (minPrice !== null) filters.push({ price: { gte: minPrice } });
@@ -179,14 +173,7 @@ function buildListingWhere(plan: AiSearchPlan): Prisma.ListingWhereInput {
   const search = plan.search?.trim();
 
   if (search) {
-    const terms = search.split(/\s+/).filter((term) => term.length >= 2).slice(0, 6);
-    filters.push({
-      OR: terms.flatMap((term) => [
-        { title: { contains: term } },
-        { location: { contains: term } },
-        { rawDescription: { contains: term } },
-      ]),
-    });
+    filters.push(buildTextSearchFilter(search));
   }
 
   if (plan.location) {
@@ -243,6 +230,21 @@ function getListingOrder(sort: string): Prisma.ListingOrderByWithRelationInput {
     default:
       return { scrapedAt: 'desc' };
   }
+}
+
+function buildTextSearchFilter(search: string): Prisma.ListingWhereInput {
+  const terms = search.split(/\s+/).filter((term) => term.length >= 2).slice(0, 8);
+  const values = terms.length > 0 ? terms : [search];
+
+  return {
+    AND: values.map((term) => ({
+      OR: [
+        { title: { contains: term } },
+        { location: { contains: term } },
+        { rawDescription: { contains: term } },
+      ],
+    })),
+  };
 }
 
 function buildLocationVariants(location: string): string[] {
@@ -321,15 +323,25 @@ async function explainAiResults(userPrompt: string, plan: AiSearchPlan, items: A
 }
 
 async function callAi(messages: Array<{ role: 'system' | 'user'; content: string }>): Promise<string> {
+  const errors: string[] = [];
+
   if (process.env.GROQ_API_KEY) {
-    return callGroq(messages);
+    try {
+      return await callGroq(messages);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
   }
 
   if (process.env.GEMINI_API_KEY) {
-    return callGemini(messages);
+    try {
+      return await callGemini(messages);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
   }
 
-  throw new Error('No GROQ_API_KEY or GEMINI_API_KEY configured.');
+  throw new Error(errors.length > 0 ? errors.join('; ') : 'No GROQ_API_KEY or GEMINI_API_KEY configured.');
 }
 
 async function callGroq(messages: Array<{ role: 'system' | 'user'; content: string }>): Promise<string> {
