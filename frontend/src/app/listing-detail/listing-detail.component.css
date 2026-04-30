@@ -55,11 +55,26 @@ h1 {
 }
 
 aside {
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   display: grid;
   gap: 16px;
   padding: 18px;
+}
+
+.favorite {
+  background: #17211d;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 42px;
+}
+
+.favorite.saved {
+  background: #1f6f5b;
 }
 
 .price {

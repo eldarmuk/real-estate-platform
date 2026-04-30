@@ -1,80 +1,94 @@
-<section class="shell page">
-  <div class="summary" *ngIf="stats$ | async as stats">
-    <div>
-      <span>Total offers</span>
-      <strong>{{ stats.total | number }}</strong>
+<section class="hero-shell">
+  <div class="shell hero-grid">
+    <div class="hero-copy">
+      <span>Live scraped marketplace data</span>
+      <h1>Search cleaner real estate signals.</h1>
+      <p>Use structured filters when you know the numbers, or let AI translate vague intent into matching listings.</p>
     </div>
-    <div>
-      <span>Price range</span>
-      <strong>{{ stats.priceMin | currency: 'PLN':'symbol':'1.0-0' }} - {{ stats.priceMax | currency: 'PLN':'symbol':'1.0-0' }}</strong>
-    </div>
-    <div>
-      <span>Surface range</span>
-      <strong>{{ stats.surfaceMin | number: '1.0-0' }} - {{ stats.surfaceMax | number: '1.0-0' }} m2</strong>
+
+    <div class="stats-strip" *ngIf="stats$ | async as stats">
+      <div><span>Listings</span><strong>{{ stats.total | number }}</strong></div>
+      <div><span>From</span><strong>{{ stats.priceMin | currency: 'PLN':'symbol':'1.0-0' }}</strong></div>
+      <div><span>Up to</span><strong>{{ stats.surfaceMax | number: '1.0-0' }} m2</strong></div>
     </div>
   </div>
+</section>
 
-  <form class="filters" [formGroup]="filtersForm" (ngSubmit)="applyFilters()">
-    <label>
-      Search
-      <input formControlName="search" type="search" placeholder="Kraków, garden, renovation" />
-    </label>
-    <label>
-      Location
-      <input formControlName="location" type="search" placeholder="Kraków" />
-    </label>
-    <label>
-      Type
-      <select formControlName="propertyType">
-        <option value="">Any</option>
-        <option value="Dom">House</option>
-        <option value="Mieszkanie">Apartment</option>
-        <option value="Dzialka">Plot</option>
-      </select>
-    </label>
-    <label>
-      Min price
-      <input formControlName="minPrice" type="number" min="0" step="50000" />
-    </label>
-    <label>
-      Max price
-      <input formControlName="maxPrice" type="number" min="0" step="50000" />
-    </label>
-    <label>
-      Min m2
-      <input formControlName="minSurface" type="number" min="0" />
-    </label>
-    <label>
-      Max m2
-      <input formControlName="maxSurface" type="number" min="0" />
-    </label>
-    <label>
-      Rooms
-      <input formControlName="minRooms" type="number" min="0" />
-    </label>
-    <label>
-      Sort
-      <select formControlName="sort">
-        <option value="newest">Newest</option>
-        <option value="price-asc">Lowest price</option>
-        <option value="price-desc">Highest price</option>
-        <option value="surface-desc">Largest</option>
-        <option value="surface-asc">Smallest</option>
-      </select>
-    </label>
-    <div class="filter-actions">
-      <button type="submit">Apply</button>
-      <button type="button" class="secondary" (click)="resetFilters()">Reset</button>
+<section class="shell search-dock">
+  <div class="mode-tabs" role="tablist" aria-label="Search mode">
+    <button type="button" [class.active]="mode() === 'classic'" (click)="setMode('classic')">Search</button>
+    <button type="button" [class.active]="mode() === 'ai'" (click)="setMode('ai')">AI Recommend</button>
+  </div>
+
+  <form class="classic-panel" *ngIf="mode() === 'classic'" [formGroup]="filtersForm" (ngSubmit)="applyFilters()">
+    <div class="main-search">
+      <input formControlName="search" type="search" placeholder="Search by city, feature, description, or street" />
+      <button type="submit" aria-label="Apply search">Search</button>
+    </div>
+
+    <div class="filter-grid">
+      <label>Location<input formControlName="location" type="search" placeholder="Kraków" /></label>
+      <label>Type
+        <select formControlName="propertyType">
+          <option value="">Any</option>
+          <option value="Dom">House</option>
+          <option value="Mieszkanie">Apartment</option>
+          <option value="Dzialka">Plot</option>
+        </select>
+      </label>
+      <label>Min price<input formControlName="minPrice" type="number" min="0" step="50000" /></label>
+      <label>Max price<input formControlName="maxPrice" type="number" min="0" step="50000" /></label>
+      <label>Min m2<input formControlName="minSurface" type="number" min="0" /></label>
+      <label>Max m2<input formControlName="maxSurface" type="number" min="0" /></label>
+      <label>Rooms<input formControlName="minRooms" type="number" min="0" /></label>
+      <label>Sort
+        <select formControlName="sort">
+          <option value="newest">Newest</option>
+          <option value="price-asc">Lowest price</option>
+          <option value="price-desc">Highest price</option>
+          <option value="surface-desc">Largest</option>
+          <option value="surface-asc">Smallest</option>
+        </select>
+      </label>
+      <button type="button" class="ghost" (click)="resetFilters()">Reset</button>
     </div>
   </form>
 
-  <ng-container *ngIf="listings$ | async as response">
-    <div class="result-bar">
+  <div class="ai-panel" *ngIf="mode() === 'ai'">
+    <div class="ai-input-row">
+      <textarea [formControl]="aiPrompt" [attr.maxlength]="aiLimit" placeholder="I want a bright, affordable flat around 40m2 in Kraków, preferably near transit"></textarea>
+      <button type="button" (click)="searchWithAi()" [disabled]="aiLoading() || !aiPrompt.value.trim() || aiPrompt.value.length > aiLimit">Ask AI</button>
+    </div>
+    <div class="ai-meta">
+      <span>{{ aiPrompt.value.length }}/{{ aiLimit }} characters</span>
+      <span *ngIf="aiLoading()" class="thinking">AI is searching...</span>
+      <span *ngIf="aiError()" class="error">{{ aiError() }}</span>
+    </div>
+    <div class="ai-answer" *ngIf="aiResult() as result">
+      <strong>Recommendation results</strong>
+      <p>{{ result.explanation }}</p>
+      <div class="recommendations">
+        <article *ngFor="let listing of result.items; trackBy: trackListing">
+          <a [routerLink]="['/listings', listing.id]">{{ listing.title }}</a>
+          <span>{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }} · {{ listing.sizeSqm || '-' }} m2 · {{ listing.location || 'Unknown' }}</span>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="shell listings-section">
+  <div class="section-bar" *ngIf="listings$ | async as response">
+    <div>
+      <span>All listings</span>
       <strong>{{ response.total | number }} results</strong>
-      <span>Page {{ response.page }}</span>
+    </div>
+    <div class="view-toggle" aria-label="View mode">
+      <button type="button" [class.active]="viewMode() === 'grid'" (click)="setViewMode('grid')">Grid</button>
+      <button type="button" [class.active]="viewMode() === 'list'" (click)="setViewMode('list')">List</button>
     </div>
 
-    <div class="grid">
+    <div class="cards" [ngClass]="viewMode()">
       <article class="listing-card" *ngFor="let listing of response.items; trackBy: trackListing">
         <a [routerLink]="['/listings', listing.id]" class="media">
           <img *ngIf="listing.imageUrl; else noImage" [src]="listing.imageUrl" [alt]="listing.title" loading="lazy" />
@@ -83,7 +97,9 @@
         <div class="card-body">
           <div class="card-topline">
             <span>{{ listing.propertyType || 'Offer' }}</span>
-            <span>{{ listing.location || 'Unknown location' }}</span>
+            <button type="button" class="favorite" [class.saved]="favorites.isFavorite(listing.id)" (click)="toggleFavorite(listing)">
+              {{ favorites.isFavorite(listing.id) ? 'Saved' : 'Save' }}
+            </button>
           </div>
           <h2><a [routerLink]="['/listings', listing.id]">{{ listing.title }}</a></h2>
           <p>{{ listing.rawDescription }}</p>
@@ -91,16 +107,18 @@
             <strong>{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }}</strong>
             <span>{{ listing.sizeSqm || '-' }} m2</span>
             <span>{{ listing.rooms || '-' }} rooms</span>
+            <span>{{ listing.location || 'Unknown' }}</span>
           </div>
         </div>
       </article>
     </div>
 
     <div class="pagination">
-      <button type="button" class="secondary" [disabled]="page() === 1" (click)="previousPage()">Previous</button>
+      <button type="button" class="ghost" [disabled]="page() === 1" (click)="previousPage()">Previous</button>
+      <span>Page {{ response.page }}</span>
       <button type="button" [disabled]="page() * pageSize >= response.total" (click)="nextPage(response)">Next</button>
     </div>
-  </ng-container>
+  </div>
 
   <div class="loading" *ngIf="loading()">Loading listings...</div>
 </section>

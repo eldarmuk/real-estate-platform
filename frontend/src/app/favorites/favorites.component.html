@@ -1,0 +1,24 @@
+<section class="shell favorites-page">
+  <div class="page-heading">
+    <span>Saved locally</span>
+    <h1>Favorites</h1>
+    <p>Your saved listings stay in this browser.</p>
+  </div>
+
+  <div class="empty" *ngIf="favoritesService.favorites().length === 0">
+    <p>No favorites yet.</p>
+    <a routerLink="/">Browse listings</a>
+  </div>
+
+  <div class="favorites-list" *ngIf="favoritesService.favorites().length > 0">
+    <article *ngFor="let listing of favoritesService.favorites()">
+      <img *ngIf="listing.imageUrl" [src]="listing.imageUrl" [alt]="listing.title" />
+      <div>
+        <span>{{ listing.location || 'Unknown location' }}</span>
+        <h2><a [routerLink]="['/listings', listing.id]">{{ listing.title }}</a></h2>
+        <strong>{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }}</strong>
+      </div>
+      <button type="button" (click)="remove(listing)">Remove</button>
+    </article>
+  </div>
+</section>
