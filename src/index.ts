@@ -148,9 +148,11 @@ app.get(/^(?!\/api).*/, (_req, res) => {
 });
 
 function parseOptionalNumber(value: unknown): number | null {
+  if (Array.isArray(value)) return parseOptionalNumber(value[0]);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value !== 'string' || value.trim() === '') return null;
 
-  const parsed = Number(value);
+  const parsed = Number(value.replace(/\s/g, '').replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -242,12 +244,12 @@ function queryFromAiPlan(plan: AiSearchPlan): ListingQuery {
 function matchesListingQuery(listing: ListingItem, query: ListingQuery): boolean {
   if (query.propertyType && normalizeForSearch(listing.propertyType) !== normalizeForSearch(query.propertyType)) return false;
   if (query.location && !matchesLocation(listing.location, query.location)) return false;
-  if (query.minPrice !== null && !numberAtLeast(listing.price, query.minPrice)) return false;
-  if (query.maxPrice !== null && !numberAtMost(listing.price, query.maxPrice)) return false;
-  if (query.minSurface !== null && !numberAtLeast(listing.sizeSqm, query.minSurface)) return false;
-  if (query.maxSurface !== null && !numberAtMost(listing.sizeSqm, query.maxSurface)) return false;
-  if (query.minRooms !== null && !numberAtLeast(listing.rooms, Math.round(query.minRooms))) return false;
-  if (query.maxRooms !== null && !numberAtMost(listing.rooms, Math.round(query.maxRooms))) return false;
+  if (query.minPrice !== null && !numberAtLeast(getListingNumber(listing, 'price'), query.minPrice)) return false;
+  if (query.maxPrice !== null && !numberAtMost(getListingNumber(listing, 'price'), query.maxPrice)) return false;
+  if (query.minSurface !== null && !numberAtLeast(getListingNumber(listing, 'sizeSqm'), query.minSurface)) return false;
+  if (query.maxSurface !== null && !numberAtMost(getListingNumber(listing, 'sizeSqm'), query.maxSurface)) return false;
+  if (query.minRooms !== null && !numberAtLeast(getListingNumber(listing, 'rooms'), Math.round(query.minRooms))) return false;
+  if (query.maxRooms !== null && !numberAtMost(getListingNumber(listing, 'rooms'), Math.round(query.maxRooms))) return false;
   if (query.search && !matchesSearch(listing, query.search)) return false;
 
   return true;
@@ -292,6 +294,30 @@ function listingToSearchText(listing: ListingItem): string {
   ]
     .filter((value) => value !== null && value !== undefined)
     .join(' ');
+}
+
+function getListingNumber(listing: ListingItem, field: 'price' | 'sizeSqm' | 'rooms'): number | null {
+  const direct = listing[field];
+  if (typeof direct === 'number' && Number.isFinite(direct)) return direct;
+
+  const raw = isRecord(listing.rawAttributes) ? listing.rawAttributes : {};
+  const fallbackKeys: Record<typeof field, string[]> = {
+    price: ['price', 'cena'],
+    sizeSqm: ['sizeSqm', 'powierzchnia', 'powierzchnia mieszkania', 'powierzchnia domu'],
+    rooms: ['rooms', 'liczba pokoi', 'pokoje'],
+  };
+
+  for (const key of fallbackKeys[field]) {
+    const value = raw[key];
+    const parsed = parseOptionalNumber(value);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function tokenize(value: string): string[] {
