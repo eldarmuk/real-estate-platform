@@ -45,27 +45,31 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/api/listings', async (req, res) => {
-  const page = Math.max(Number(req.query.page ?? 1), 1);
-  const pageSize = Math.min(Math.max(Number(req.query.pageSize ?? 20), 1), 50);
-  const query: ListingQuery = {
-    search: String(req.query.search ?? '').trim(),
-    minPrice: parseOptionalNumber(req.query.minPrice),
-    maxPrice: parseOptionalNumber(req.query.maxPrice),
-    minSurface: parseOptionalNumber(req.query.minSurface),
-    maxSurface: parseOptionalNumber(req.query.maxSurface),
-    minRooms: parseOptionalNumber(req.query.minRooms),
-    maxRooms: parseOptionalNumber(req.query.maxRooms),
-    propertyType: parseOptionalString(req.query.propertyType),
-    location: parseOptionalString(req.query.location),
-    sort: parseOptionalString(req.query.sort) ?? 'newest',
-  };
+  try {
+    const page = Math.max(Number(req.query.page ?? 1), 1);
+    const pageSize = Math.min(Math.max(Number(req.query.pageSize ?? 20), 1), 50);
+    const query: ListingQuery = {
+      search: String(req.query.search ?? '').trim(),
+      minPrice: parseOptionalNumber(req.query.minPrice),
+      maxPrice: parseOptionalNumber(req.query.maxPrice),
+      minSurface: parseOptionalNumber(req.query.minSurface),
+      maxSurface: parseOptionalNumber(req.query.maxSurface),
+      minRooms: parseOptionalNumber(req.query.minRooms),
+      maxRooms: parseOptionalNumber(req.query.maxRooms),
+      propertyType: parseOptionalString(req.query.propertyType),
+      location: parseOptionalString(req.query.location),
+      sort: parseOptionalString(req.query.sort) ?? 'newest',
+    };
 
-  const allItems = await prisma.listing.findMany();
-  const filtered = sortListings(allItems.filter((listing) => matchesListingQuery(listing, query)), query.sort);
-  const total = filtered.length;
-  const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+    const allItems = await prisma.listing.findMany();
+    const filtered = sortListings(allItems.filter((listing) => matchesListingQuery(listing, query)), query.sort);
+    const total = filtered.length;
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  res.json({ items, total, page, pageSize });
+    res.json({ items, total, page, pageSize });
+  } catch (error) {
+    handleApiError(res, error, 'Failed to load listings');
+  }
 });
 
 app.post('/api/ai/recommend', async (req, res) => {
@@ -101,39 +105,47 @@ app.post('/api/ai/recommend', async (req, res) => {
 });
 
 app.get('/api/listings/stats/summary', async (_req, res) => {
-  const [total, price, surface, propertyTypes] = await Promise.all([
-    prisma.listing.count(),
-    prisma.listing.aggregate({ _min: { price: true }, _max: { price: true } }),
-    prisma.listing.aggregate({ _min: { sizeSqm: true }, _max: { sizeSqm: true } }),
-    prisma.listing.groupBy({
-      by: ['propertyType'],
-      _count: { propertyType: true },
-      orderBy: { _count: { propertyType: 'desc' } },
-    }),
-  ]);
+  try {
+    const [total, price, surface, propertyTypes] = await Promise.all([
+      prisma.listing.count(),
+      prisma.listing.aggregate({ _min: { price: true }, _max: { price: true } }),
+      prisma.listing.aggregate({ _min: { sizeSqm: true }, _max: { sizeSqm: true } }),
+      prisma.listing.groupBy({
+        by: ['propertyType'],
+        _count: { propertyType: true },
+        orderBy: { _count: { propertyType: 'desc' } },
+      }),
+    ]);
 
-  res.json({
-    total,
-    priceMin: price._min.price,
-    priceMax: price._max.price,
-    surfaceMin: surface._min.sizeSqm,
-    surfaceMax: surface._max.sizeSqm,
-    propertyTypes: propertyTypes
-      .filter((item) => item.propertyType)
-      .map((item) => ({ name: item.propertyType, count: item._count.propertyType })),
-  });
+    res.json({
+      total,
+      priceMin: price._min.price,
+      priceMax: price._max.price,
+      surfaceMin: surface._min.sizeSqm,
+      surfaceMax: surface._max.sizeSqm,
+      propertyTypes: propertyTypes
+        .filter((item) => item.propertyType)
+        .map((item) => ({ name: item.propertyType, count: item._count.propertyType })),
+    });
+  } catch (error) {
+    handleApiError(res, error, 'Failed to load listing stats');
+  }
 });
 
 app.get('/api/listings/:id', async (req, res) => {
-  const id = Number(req.params.id);
-  const listing = await prisma.listing.findUnique({ where: { id } });
+  try {
+    const id = Number(req.params.id);
+    const listing = await prisma.listing.findUnique({ where: { id } });
 
-  if (!listing) {
-    res.status(404).json({ error: 'Listing not found' });
-    return;
+    if (!listing) {
+      res.status(404).json({ error: 'Listing not found' });
+      return;
+    }
+
+    res.json(listing);
+  } catch (error) {
+    handleApiError(res, error, 'Failed to load listing');
   }
-
-  res.json(listing);
 });
 
 const frontendDist = path.resolve(process.cwd(), 'frontend', 'dist', 'frontend', 'browser');
@@ -159,6 +171,14 @@ function parseOptionalString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function handleApiError(res: express.Response, error: unknown, message: string): void {
+  console.error(message, error);
+  res.status(500).json({
+    error: message,
+    detail: process.env.NODE_ENV === 'production' ? undefined : error instanceof Error ? error.message : String(error),
+  });
 }
 
 async function findRecommendedListings(plan: AiSearchPlan): Promise<ListingItem[]> {
