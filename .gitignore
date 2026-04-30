@@ -32,3 +32,6 @@ parcel-cache/
 
 # Prisma
 /src/generated/prisma
+
+# Models
+/models/
