@@ -1,0 +1,14 @@
+[build]
+  base = "frontend"
+  command = "npm run build:netlify"
+  publish = "dist/netlify"
+
+[[redirects]]
+  from = "/real-estate-platform"
+  to = "/real-estate-platform/"
+  status = 301
+
+[[redirects]]
+  from = "/real-estate-platform/*"
+  to = "/real-estate-platform/index.html"
+  status = 200

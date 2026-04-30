@@ -5,6 +5,8 @@
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",
+    "build:netlify": "npm run build",
+    "postbuild:netlify": "node scripts/prepare-netlify.mjs",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
   },
