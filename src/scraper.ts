@@ -329,7 +329,7 @@ function parseListing(html: string, url: string): ScrapedListing | null {
     url,
     source: 'adresowo.pl',
     propertyType: inferPropertyType(title, bodyText),
-    transactionType: normalizeLabel(`${pageTitle} ${bodyText}`).includes('wynajem') ? 'wynajem' : 'sprzedaz',
+    transactionType: inferTransactionType(pageTitle, bodyText),
     location: extractLocation($, jsonLd.address, title),
     price,
     pricePerSqm,
@@ -459,6 +459,15 @@ function inferPropertyType(title: string, text: string): string | null {
   if (haystack.includes('dom')) return 'Dom';
   if (haystack.includes('dzialka')) return 'Dzialka';
   return null;
+}
+
+function inferTransactionType(title: string, text: string): string {
+  const titleOnly = normalizeLabel(title);
+  if (titleOnly.includes('na sprzedaz')) return 'sprzedaz';
+  if (titleOnly.includes('wynajem') || titleOnly.includes('do wynajecia')) return 'wynajem';
+
+  const haystack = normalizeLabel(text);
+  return haystack.includes('wynajem') || haystack.includes('do wynajecia') ? 'wynajem' : 'sprzedaz';
 }
 
 function inferHouseType(title: string, text: string): string | null {
