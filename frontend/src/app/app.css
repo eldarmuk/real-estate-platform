@@ -1,6 +1,7 @@
 .header {
   align-items: center;
-  backdrop-filter: blur(18px);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: space-between;
   min-height: 72px;
@@ -30,8 +31,16 @@
 }
 
 nav a {
+  border-radius: 999px;
   color: var(--text);
+  display: inline-flex;
   font-weight: 700;
   margin-left: 18px;
+  padding: 9px 14px;
   text-decoration: none;
+}
+
+nav a.active {
+  background: #16211f;
+  color: #fff;
 }

@@ -3,8 +3,8 @@
     <span class="brand-mark"></span>
   </a>
   <nav>
-    <a routerLink="/">Explore</a>
-    <a routerLink="/favorites">Favorites</a>
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Explore</a>
+    <a routerLink="/favorites" routerLinkActive="active">Favorites</a>
   </nav>
 </header>
 
