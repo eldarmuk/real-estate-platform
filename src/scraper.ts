@@ -1,6 +1,8 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import type { CheerioAPI } from 'cheerio';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from './prisma.js';
@@ -25,6 +27,9 @@ const SITEMAP_ENABLED = (process.env.SCRAPE_SITEMAP ?? 'false').toLowerCase() ==
 const CLEAN_ENABLED = (process.env.SCRAPE_CLEAN ?? 'false').toLowerCase() === 'true' || CLI_ARGS.includes('--clean');
 const QUEUE_LINK_LIMIT = Number(process.env.SCRAPE_QUEUE_LIMIT ?? 80);
 const CANDIDATE_TARGET = Number(process.env.SCRAPE_CANDIDATE_TARGET ?? Math.max(MAX_LISTINGS * 5, 300));
+const LOCAL_MODEL_PATH = process.env.LOCAL_LLM_MODEL_PATH ?? path.resolve(process.cwd(), 'models', 'llama-3.1.gguf');
+const LOCAL_MODEL_COMMAND = process.env.LLAMA_CLI_PATH ?? 'llama-cli';
+const LOCAL_MODEL_ENABLED = (process.env.LOCAL_LLM_ENRICH ?? 'true').toLowerCase() !== 'false';
 const START_URLS = (process.env.ADRESOWO_START_URLS?.split(',') ?? DEFAULT_START_URLS)
   .map((url) => url.trim())
   .filter(Boolean);
@@ -47,6 +52,8 @@ type ScrapedListing = {
   rawDescription: string;
   rawAttributes: Record<string, string | number | null>;
 };
+
+let localModelWarningShown = false;
 
 async function fetchHtml(url: string): Promise<string> {
   const response = await axios.get<string>(url, {
@@ -262,7 +269,7 @@ async function importSavedHtmlListings(directory: string): Promise<number> {
       continue;
     }
 
-    await saveListing(listing);
+    await saveListing(await enrichMissingFields(listing));
     saved += 1;
     console.log(`Saved ${saved}/${MAX_LISTINGS}: ${listing.title}`);
   }
@@ -342,6 +349,135 @@ function parseListing(html: string, url: string): ScrapedListing | null {
     rawDescription,
     rawAttributes,
   };
+}
+
+async function enrichMissingFields(listing: ScrapedListing): Promise<ScrapedListing> {
+  const missingFields = getMissingFieldNames(listing);
+  if (missingFields.length === 0 || !LOCAL_MODEL_ENABLED) return listing;
+
+  const aiFields = await askLocalModelForMissingFields(listing, missingFields);
+  if (!aiFields) return listing;
+
+  const enriched: ScrapedListing = {
+    ...listing,
+    propertyType: listing.propertyType ?? normalizePropertyType(aiFields.propertyType),
+    transactionType: listing.transactionType ?? normalizeTransactionType(aiFields.transactionType),
+    location: listing.location ?? cleanOptionalString(aiFields.location),
+    price: listing.price ?? cleanOptionalNumber(aiFields.price),
+    pricePerSqm: listing.pricePerSqm ?? cleanOptionalNumber(aiFields.pricePerSqm),
+    sizeSqm: listing.sizeSqm ?? cleanOptionalNumber(aiFields.sizeSqm),
+    plotSizeSqm: listing.plotSizeSqm ?? cleanOptionalNumber(aiFields.plotSizeSqm),
+    constructionYear: listing.constructionYear ?? cleanOptionalInteger(aiFields.constructionYear),
+    rooms: listing.rooms ?? cleanOptionalInteger(aiFields.rooms),
+    houseType: listing.houseType ?? cleanOptionalString(aiFields.houseType),
+  };
+
+  enriched.rawAttributes = {
+    ...enriched.rawAttributes,
+    localModelChecked: new Date().toISOString(),
+    localModelFieldsRequested: missingFields.join(', '),
+  };
+
+  return enriched;
+}
+
+function getMissingFieldNames(listing: ScrapedListing): string[] {
+  return ([
+    'propertyType',
+    'transactionType',
+    'location',
+    'price',
+    'pricePerSqm',
+    'sizeSqm',
+    'plotSizeSqm',
+    'constructionYear',
+    'rooms',
+    'houseType',
+  ] as const).filter((field) => listing[field] === null);
+}
+
+async function askLocalModelForMissingFields(listing: ScrapedListing, missingFields: string[]): Promise<Partial<ScrapedListing> | null> {
+  if (!existsSync(LOCAL_MODEL_PATH)) return null;
+
+  const prompt = [
+    'Extract missing real-estate fields from this Polish listing.',
+    'Return only compact JSON. Use null when the value is not explicitly supported by the text.',
+    'Allowed keys: propertyType, transactionType, location, price, pricePerSqm, sizeSqm, plotSizeSqm, constructionYear, rooms, houseType.',
+    `Missing keys to check: ${missingFields.join(', ')}`,
+    `Known values: ${JSON.stringify({
+      title: listing.title,
+      propertyType: listing.propertyType,
+      transactionType: listing.transactionType,
+      location: listing.location,
+      price: listing.price,
+      pricePerSqm: listing.pricePerSqm,
+      sizeSqm: listing.sizeSqm,
+      plotSizeSqm: listing.plotSizeSqm,
+      constructionYear: listing.constructionYear,
+      rooms: listing.rooms,
+      houseType: listing.houseType,
+    })}`,
+    `Description: ${listing.rawDescription.slice(0, 1800)}`,
+  ].join('\n');
+
+  try {
+    const output = await runLocalModel(prompt);
+    return parseLocalModelJson(output);
+  } catch (error) {
+    if (!localModelWarningShown) {
+      console.warn(
+        `Local model enrichment skipped: ${error instanceof Error ? error.message : error}. ` +
+          'Set LLAMA_CLI_PATH to a llama.cpp compatible executable, or LOCAL_LLM_ENRICH=false to disable this hook.',
+      );
+      localModelWarningShown = true;
+    }
+    return null;
+  }
+}
+
+function runLocalModel(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(LOCAL_MODEL_COMMAND, ['-m', LOCAL_MODEL_PATH, '-p', prompt, '-n', '220', '--temp', '0'], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error('local model timed out'));
+    }, Number(process.env.LOCAL_LLM_TIMEOUT_MS ?? 45_000));
+
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+      reject(new Error(stderr.trim() || `local model exited with code ${code}`));
+    });
+  });
+}
+
+function parseLocalModelJson(output: string): Partial<ScrapedListing> | null {
+  const start = output.indexOf('{');
+  const end = output.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(output.slice(start, end + 1)) as Partial<ScrapedListing>;
+  } catch {
+    return null;
+  }
 }
 
 function buildOfferTitle($: CheerioAPI): string | null {
@@ -477,6 +613,38 @@ function inferHouseType(title: string, text: string): string | null {
   if (haystack.includes('szeregowy')) return 'szeregowy';
   if (haystack.includes('siedlisko')) return 'siedlisko';
   return null;
+}
+
+function normalizePropertyType(value: unknown): string | null {
+  const normalized = normalizeLabel(String(value ?? ''));
+  if (normalized.includes('mieszkanie')) return 'Mieszkanie';
+  if (normalized.includes('dom')) return 'Dom';
+  if (normalized.includes('dzialka')) return 'Dzialka';
+  return null;
+}
+
+function normalizeTransactionType(value: unknown): string | null {
+  const normalized = normalizeLabel(String(value ?? ''));
+  if (normalized.includes('wynajem') || normalized.includes('do wynajecia')) return 'wynajem';
+  if (normalized.includes('sprzedaz') || normalized.includes('na sprzedaz')) return 'sprzedaz';
+  return null;
+}
+
+function cleanOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = cleanText(value);
+  return cleaned.length > 0 && cleaned.toLowerCase() !== 'null' ? cleaned : null;
+}
+
+function cleanOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  return parsePolishNumber(value);
+}
+
+function cleanOptionalInteger(value: unknown): number | null {
+  const parsed = cleanOptionalNumber(value);
+  return parsed === null ? null : Math.round(parsed);
 }
 
 function extractImageUrl($: CheerioAPI): string | null {
