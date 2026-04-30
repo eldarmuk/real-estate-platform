@@ -1,9 +1,9 @@
 <section class="hero-shell">
   <div class="shell hero-grid">
     <div class="hero-copy">
-      <span>Live scraped marketplace data</span>
-      <h1>Search cleaner real estate signals.</h1>
-      <p>Use structured filters when you know the numbers, or let AI translate vague intent into matching listings.</p>
+      <span>Real estate offers</span>
+      <h1>Browse listings</h1>
+      <p>Search by text, filter by key fields, or ask for a recommendation.</p>
     </div>
 
     <div class="stats-strip" *ngIf="stats$ | async as stats">
@@ -27,7 +27,7 @@
     </div>
 
     <div class="filter-grid">
-      <label>Location<input formControlName="location" type="search" placeholder="Kraków" /></label>
+      <label>Location<input formControlName="location" type="search" placeholder="Krakow" /></label>
       <label>Type
         <select formControlName="propertyType">
           <option value="">Any</option>
@@ -56,7 +56,7 @@
 
   <div class="ai-panel" *ngIf="mode() === 'ai'">
     <div class="ai-input-row">
-      <textarea [formControl]="aiPrompt" [attr.maxlength]="aiLimit" placeholder="I want a bright, affordable flat around 40m2 in Kraków, preferably near transit"></textarea>
+      <textarea [formControl]="aiPrompt" [attr.maxlength]="aiLimit" placeholder="I want a bright, affordable flat around 40m2 in Krakow, preferably near transit"></textarea>
       <button type="button" (click)="searchWithAi()" [disabled]="aiLoading() || !aiPrompt.value.trim() || aiPrompt.value.length > aiLimit">Ask AI</button>
     </div>
     <div class="ai-meta">
@@ -70,7 +70,7 @@
       <div class="recommendations">
         <article *ngFor="let listing of result.items; trackBy: trackListing">
           <a [routerLink]="['/listings', listing.id]">{{ listing.title }}</a>
-          <span>{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }} · {{ listing.sizeSqm || '-' }} m2 · {{ listing.location || 'Unknown' }}</span>
+          <span>{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }} | {{ listing.sizeSqm || '-' }} m2 | {{ listing.location || 'Unknown' }}</span>
         </article>
       </div>
     </div>
@@ -96,8 +96,8 @@
         </a>
         <div class="card-body">
           <div class="card-topline">
-            <span>{{ listing.propertyType || 'Offer' }}</span>
-            <button type="button" class="favorite" [class.saved]="favorites.isFavorite(listing.id)" (click)="toggleFavorite(listing)">
+            <span class="type-label">{{ listing.propertyType || 'Offer' }}</span>
+            <button type="button" class="favorite" [class.saved]="favorites.isFavorite(listing.id)" (click)="toggleFavorite(listing); $event.stopPropagation()">
               {{ favorites.isFavorite(listing.id) ? 'Saved' : 'Save' }}
             </button>
           </div>
@@ -115,7 +115,11 @@
 
     <div class="pagination">
       <button type="button" class="ghost" [disabled]="page() === 1" (click)="previousPage()">Previous</button>
-      <span>Page {{ response.page }}</span>
+      <button type="button" class="page-button" [class.active]="page() === 1" (click)="goToPage(1, response)">1</button>
+      <span *ngIf="page() > 2">...</span>
+      <button type="button" class="page-button active" *ngIf="page() > 1 && page() < totalPages(response)" disabled>{{ page() }}</button>
+      <span *ngIf="page() < totalPages(response) - 1">...</span>
+      <button type="button" class="page-button" *ngIf="totalPages(response) > 1" [class.active]="page() === totalPages(response)" (click)="goToPage(totalPages(response), response)">{{ totalPages(response) }}</button>
       <button type="button" [disabled]="page() * pageSize >= response.total" (click)="nextPage(response)">Next</button>
     </div>
   </div>

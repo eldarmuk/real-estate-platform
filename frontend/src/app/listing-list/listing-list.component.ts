@@ -107,6 +107,19 @@ export class ListingListComponent {
     this.refresh$.next();
   }
 
+  goToPage(page: number, response: ListingResponse): void {
+    const totalPages = this.totalPages(response);
+    const nextPage = Math.min(Math.max(page, 1), totalPages);
+    if (nextPage === this.page()) return;
+
+    this.page.set(nextPage);
+    this.refresh$.next();
+  }
+
+  totalPages(response: ListingResponse): number {
+    return Math.max(Math.ceil(response.total / response.pageSize), 1);
+  }
+
   toggleFavorite(listing: Listing): void {
     this.favorites.toggle(listing);
   }

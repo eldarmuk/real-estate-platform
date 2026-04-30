@@ -1,7 +1,5 @@
 .hero-shell {
-  background:
-    linear-gradient(135deg, rgba(116, 247, 199, 0.16), transparent 34%),
-    linear-gradient(135deg, #0b0f11, #151c20 60%, #202820);
+  background: linear-gradient(135deg, #0b0f11, #151c20 60%, #202820);
   color: #f8fbfa;
   padding-block: 34px 28px;
 }
@@ -252,7 +250,7 @@ label {
 .cards.grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .cards.list {
@@ -286,16 +284,20 @@ label {
 .card-body {
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 14px;
 }
 
 .card-topline,
-.facts,
 .pagination {
   align-items: center;
   display: flex;
   gap: 10px;
   justify-content: space-between;
+}
+
+.card-topline {
+  min-width: 0;
 }
 
 .card-topline span,
@@ -309,6 +311,7 @@ label {
 .favorite {
   background: #eef5f1;
   color: #294138;
+  flex: 0 0 auto;
   min-height: 32px;
   padding-inline: 12px;
 }
@@ -322,11 +325,22 @@ h2 {
   font-size: 18px;
   line-height: 1.35;
   margin: 0;
+  min-width: 0;
 }
 
 h2 a {
   color: inherit;
+  display: -webkit-box;
+  overflow: hidden;
   text-decoration: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.type-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-body p {
@@ -341,11 +355,27 @@ h2 a {
 
 .facts {
   border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding-top: 10px;
 }
 
 .pagination {
+  flex-wrap: wrap;
   justify-content: center;
+}
+
+.page-button {
+  background: #e9efeb;
+  color: #25332f;
+  min-width: 42px;
+  padding-inline: 12px;
+}
+
+.page-button.active {
+  background: #16211f;
+  color: #fff;
 }
 
 @media (max-width: 980px) {
