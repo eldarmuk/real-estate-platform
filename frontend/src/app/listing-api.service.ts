@@ -16,18 +16,22 @@ export class ListingApiService {
       }
     }
 
-    return this.http.get<ListingResponse>('/api/listings', { params });
+    return this.http.get<ListingResponse>(this.apiUrl('listings'), { params });
   }
 
   getListing(id: number): Observable<Listing> {
-    return this.http.get<Listing>(`/api/listings/${id}`);
+    return this.http.get<Listing>(this.apiUrl(`listings/${id}`));
   }
 
   getStats(): Observable<ListingStats> {
-    return this.http.get<ListingStats>('/api/listings/stats/summary');
+    return this.http.get<ListingStats>(this.apiUrl('listings/stats/summary'));
   }
 
   recommend(prompt: string): Observable<AiRecommendationResponse> {
-    return this.http.post<AiRecommendationResponse>('/api/ai/recommend', { prompt });
+    return this.http.post<AiRecommendationResponse>(this.apiUrl('ai/recommend'), { prompt });
+  }
+
+  private apiUrl(path: string): string {
+    return new URL(`api/${path}`, document.baseURI).pathname;
   }
 }
