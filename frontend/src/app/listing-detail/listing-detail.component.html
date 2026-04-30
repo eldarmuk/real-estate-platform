@@ -7,23 +7,42 @@
 
   <div class="layout">
     <article>
-      <div class="eyebrow">{{ listing.propertyType || 'Offer' }} · {{ listing.location || 'Unknown location' }}</div>
+      <div class="eyebrow">{{ listing.propertyType || 'Offer' }} | {{ listing.location || 'Unknown location' }}</div>
       <h1>{{ listing.title }}</h1>
-      <p class="description">{{ listing.rawDescription }}</p>
+
+      <section class="info-section">
+        <h2>Description</h2>
+        <p class="description">{{ listing.rawDescription || 'No description provided.' }}</p>
+      </section>
+
+      <section class="info-section" *ngIf="listing.rawAttributes as attributes">
+        <h2>Extracted details</h2>
+        <dl class="attributes">
+          <div *ngFor="let attribute of attributes | keyvalue">
+            <dt>{{ attribute.key }}</dt>
+            <dd>{{ attribute.value || '-' }}</dd>
+          </div>
+        </dl>
+      </section>
     </article>
 
     <aside>
-      <div class="price">{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }}</div>
+      <div class="price">{{ listing.price === null ? 'Price unavailable' : (listing.price | currency: 'PLN':'symbol':'1.0-0') }}</div>
       <dl>
-        <div><dt>Price per m2</dt><dd>{{ listing.pricePerSqm | currency: 'PLN':'symbol':'1.0-0' }}</dd></div>
-        <div><dt>Surface</dt><dd>{{ listing.sizeSqm | number: '1.0-1' }} m2</dd></div>
-        <div><dt>Plot</dt><dd>{{ listing.plotSizeSqm || '-' }} m2</dd></div>
+        <div><dt>Transaction</dt><dd>{{ listing.transactionType || '-' }}</dd></div>
+        <div><dt>Property type</dt><dd>{{ listing.propertyType || '-' }}</dd></div>
+        <div><dt>Location</dt><dd>{{ listing.location || '-' }}</dd></div>
+        <div><dt>Price per m2</dt><dd>{{ listing.pricePerSqm === null ? '-' : (listing.pricePerSqm | currency: 'PLN':'symbol':'1.0-0') }}</dd></div>
+        <div><dt>Surface</dt><dd>{{ listing.sizeSqm === null ? '-' : ((listing.sizeSqm | number: '1.0-1') + ' m2') }}</dd></div>
+        <div><dt>Plot</dt><dd>{{ listing.plotSizeSqm === null ? '-' : ((listing.plotSizeSqm | number: '1.0-0') + ' m2') }}</dd></div>
         <div><dt>Rooms</dt><dd>{{ listing.rooms || '-' }}</dd></div>
         <div><dt>Year</dt><dd>{{ listing.constructionYear || '-' }}</dd></div>
         <div><dt>House type</dt><dd>{{ listing.houseType || '-' }}</dd></div>
+        <div><dt>Source</dt><dd>{{ listing.source }}</dd></div>
+        <div><dt>Scraped</dt><dd>{{ listing.scrapedAt | date: 'mediumDate' }}</dd></div>
       </dl>
       <button type="button" class="favorite" [class.saved]="favorites.isFavorite(listing.id)" (click)="toggleFavorite(listing)">
-        {{ favorites.isFavorite(listing.id) ? 'Saved locally' : 'Save favorite' }}
+        {{ favorites.isFavorite(listing.id) ? 'Saved' : 'Save favorite' }}
       </button>
       <a class="source" [href]="listing.url" target="_blank" rel="noreferrer">Open source listing</a>
     </aside>

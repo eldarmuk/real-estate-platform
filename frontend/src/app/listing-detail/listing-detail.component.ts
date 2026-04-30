@@ -1,4 +1,4 @@
-import { AsyncPipe, CurrencyPipe, DecimalPipe, NgIf } from '@angular/common';
+import { AsyncPipe, CurrencyPipe, DatePipe, DecimalPipe, KeyValuePipe, NgFor, NgIf } from '@angular/common';
 import { Component, Input, OnChanges } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FavoritesService } from '../favorites.service';
@@ -8,7 +8,7 @@ import { Listing } from '../models';
 
 @Component({
   selector: 'app-listing-detail',
-  imports: [AsyncPipe, CurrencyPipe, DecimalPipe, NgIf, RouterLink],
+  imports: [AsyncPipe, CurrencyPipe, DatePipe, DecimalPipe, KeyValuePipe, NgFor, NgIf, RouterLink],
   templateUrl: './listing-detail.component.html',
   styleUrl: './listing-detail.component.css',
 })

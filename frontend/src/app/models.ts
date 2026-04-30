@@ -15,6 +15,7 @@ export type Listing = {
   houseType: string | null;
   imageUrl: string | null;
   rawDescription: string;
+  rawAttributes: Record<string, string | number | null> | null;
   scrapedAt: string;
 };
 
