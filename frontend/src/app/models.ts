@@ -47,3 +47,9 @@ export type ListingStats = {
   surfaceMax: number | null;
   propertyTypes: Array<{ name: string; count: number }>;
 };
+
+export type AiRecommendationResponse = {
+  explanation: string;
+  filters: ListingFilters & { reasoning?: string };
+  items: Listing[];
+};

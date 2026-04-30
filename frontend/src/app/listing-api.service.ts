@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Listing, ListingFilters, ListingResponse, ListingStats } from './models';
+import { AiRecommendationResponse, Listing, ListingFilters, ListingResponse, ListingStats } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ListingApiService {
@@ -25,5 +25,9 @@ export class ListingApiService {
 
   getStats(): Observable<ListingStats> {
     return this.http.get<ListingStats>('/api/listings/stats/summary');
+  }
+
+  recommend(prompt: string): Observable<AiRecommendationResponse> {
+    return this.http.post<AiRecommendationResponse>('/api/ai/recommend', { prompt });
   }
 }
