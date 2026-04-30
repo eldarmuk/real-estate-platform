@@ -355,8 +355,12 @@ async function enrichMissingFields(listing: ScrapedListing): Promise<ScrapedList
   const missingFields = getMissingFieldNames(listing);
   if (missingFields.length === 0 || !LOCAL_MODEL_ENABLED) return listing;
 
+  console.log(`Local model checking ${listing.title}: missing ${missingFields.join(', ')}`);
   const aiFields = await askLocalModelForMissingFields(listing, missingFields);
-  if (!aiFields) return listing;
+  if (!aiFields) {
+    console.log(`Local model made no changes for ${listing.title}`);
+    return listing;
+  }
 
   const enriched: ScrapedListing = {
     ...listing,
@@ -377,6 +381,14 @@ async function enrichMissingFields(listing: ScrapedListing): Promise<ScrapedList
     localModelChecked: new Date().toISOString(),
     localModelFieldsRequested: missingFields.join(', '),
   };
+
+  const changes = describeEnrichmentChanges(listing, enriched, missingFields);
+  if (changes.length > 0) {
+    enriched.rawAttributes.localModelFieldsChanged = changes.join('; ');
+    console.log(`Local model enriched ${listing.title}: ${changes.join('; ')}`);
+  } else {
+    console.log(`Local model checked ${listing.title}, but did not fill any missing field.`);
+  }
 
   return enriched;
 }
@@ -478,6 +490,12 @@ function parseLocalModelJson(output: string): Partial<ScrapedListing> | null {
   } catch {
     return null;
   }
+}
+
+function describeEnrichmentChanges(before: ScrapedListing, after: ScrapedListing, checkedFields: string[]): string[] {
+  return checkedFields
+    .filter((field) => before[field as keyof ScrapedListing] === null && after[field as keyof ScrapedListing] !== null)
+    .map((field) => `${field}=${String(after[field as keyof ScrapedListing])}`);
 }
 
 function buildOfferTitle($: CheerioAPI): string | null {
@@ -778,7 +796,7 @@ async function scrapeListings(): Promise<void> {
         continue;
       }
 
-      await saveListing(listing);
+      await saveListing(await enrichMissingFields(listing));
       saved += 1;
       console.log(`Saved ${saved}/${MAX_LISTINGS}: ${listing.title}`);
 
