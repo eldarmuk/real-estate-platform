@@ -1,0 +1,28 @@
+<section class="shell detail" *ngIf="listing$ | async as listing">
+  <a routerLink="/" class="back">Back to listings</a>
+
+  <div class="hero">
+    <img *ngIf="listing.imageUrl" [src]="listing.imageUrl" [alt]="listing.title" />
+  </div>
+
+  <div class="layout">
+    <article>
+      <div class="eyebrow">{{ listing.propertyType || 'Offer' }} · {{ listing.location || 'Unknown location' }}</div>
+      <h1>{{ listing.title }}</h1>
+      <p class="description">{{ listing.rawDescription }}</p>
+    </article>
+
+    <aside>
+      <div class="price">{{ listing.price | currency: 'PLN':'symbol':'1.0-0' }}</div>
+      <dl>
+        <div><dt>Price per m2</dt><dd>{{ listing.pricePerSqm | currency: 'PLN':'symbol':'1.0-0' }}</dd></div>
+        <div><dt>Surface</dt><dd>{{ listing.sizeSqm | number: '1.0-1' }} m2</dd></div>
+        <div><dt>Plot</dt><dd>{{ listing.plotSizeSqm || '-' }} m2</dd></div>
+        <div><dt>Rooms</dt><dd>{{ listing.rooms || '-' }}</dd></div>
+        <div><dt>Year</dt><dd>{{ listing.constructionYear || '-' }}</dd></div>
+        <div><dt>House type</dt><dd>{{ listing.houseType || '-' }}</dd></div>
+      </dl>
+      <a class="source" [href]="listing.url" target="_blank" rel="noreferrer">Open source listing</a>
+    </aside>
+  </div>
+</section>
