@@ -11,6 +11,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(express.json());
+app.use((req, res, next) => {
+  const allowedOrigins = new Set([
+    'https://eldarmukhtar.ovh',
+    'https://www.eldarmukhtar.ovh',
+    'http://localhost:4200',
+    'http://localhost:3000',
+  ]);
+  const origin = req.headers.origin;
+
+  if (origin && allowedOrigins.has(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Vary', 'Origin');
+  }
+
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+
+  next();
+});
 
 type AiSearchPlan = {
   search?: string;
