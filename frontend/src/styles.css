@@ -1,8 +1,10 @@
 :root {
-  --bg: #f7f8f6;
-  --line: #dfe6e1;
-  --muted: #66756f;
-  --text: #17211d;
+  --accent: #70f0be;
+  --bg: #eef2ef;
+  --line: #d8e1dc;
+  --muted: #63716c;
+  --panel: #ffffff;
+  --text: #101916;
 }
 
 * {
@@ -10,7 +12,9 @@
 }
 
 body {
-  background: var(--bg);
+  background:
+    linear-gradient(180deg, rgba(112, 240, 190, 0.12), transparent 340px),
+    var(--bg);
   color: var(--text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   margin: 0;
@@ -18,6 +22,14 @@ body {
 
 .shell {
   margin-inline: auto;
-  max-width: 1180px;
-  padding-inline: 20px;
+  max-width: 1220px;
+  padding-inline: 22px;
+}
+
+a,
+button,
+input,
+select,
+textarea {
+  outline-color: #49b48d;
 }
