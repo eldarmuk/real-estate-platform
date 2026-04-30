@@ -113,15 +113,25 @@ button {
   width: 100%;
 }
 
-.main-search,
-.ai-input-row {
+.main-search {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(0, 1fr) 132px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.main-search {
-  grid-template-columns: minmax(0, 1fr) auto;
+.ai-input-row {
+  align-items: stretch;
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.ai-input-row textarea {
+  flex: 1 1 auto;
+}
+
+.ai-input-row button {
+  flex: 0 0 132px;
 }
 
 input,
@@ -418,8 +428,15 @@ h2 a {
   .cards.grid,
   .cards.list .listing-card,
   .main-search,
-  .ai-input-row,
   .filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ai-input-row {
+    flex-direction: column;
+  }
+
+  .ai-input-row button {
+    flex-basis: auto;
   }
 }
