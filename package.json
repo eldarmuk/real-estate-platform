@@ -6,7 +6,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
+    "build:all": "npm run build && npm run build:frontend",
+    "build:frontend": "npm --prefix frontend run build",
     "dev": "nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm\" src/index.ts",
+    "dev:frontend": "npm --prefix frontend start",
+    "start": "node dist/src/index.js",
     "scrape": "npm run build --silent && node dist/src/scraper.js"
   },
   "keywords": [],
