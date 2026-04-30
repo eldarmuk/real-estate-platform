@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { type AiSearchPlan, type ListingQuery, type ListingSearchItem } from './listing-search.js';
 import { prisma } from './prisma.js';
 
 const app = express();
@@ -36,33 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 
-type AiSearchPlan = {
-  search?: string;
-  location?: string;
-  propertyType?: string;
-  minPrice?: number;
-  maxPrice?: number;
-  minSurface?: number;
-  maxSurface?: number;
-  minRooms?: number;
-  sort?: string;
-  reasoning?: string;
-};
-
-type ListingItem = Awaited<ReturnType<typeof prisma.listing.findMany>>[number];
-
-type ListingQuery = {
-  search: string;
-  minPrice: number | null;
-  maxPrice: number | null;
-  minSurface: number | null;
-  maxSurface: number | null;
-  minRooms: number | null;
-  maxRooms: number | null;
-  propertyType: string | null;
-  location: string | null;
-  sort: string;
-};
+type ListingItem = ListingSearchItem;
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Real estate API is running!' });

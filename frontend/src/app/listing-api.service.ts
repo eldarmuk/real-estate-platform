@@ -1,9 +1,8 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
+import { buildApiUrl } from './api-url';
 import { AiRecommendationResponse, Listing, ListingFilters, ListingResponse, ListingStats } from './models';
-
-const railwayApiBase = 'https://real-estate-platform-production-17ac.up.railway.app/api';
 
 @Injectable({ providedIn: 'root' })
 export class ListingApiService {
@@ -34,12 +33,6 @@ export class ListingApiService {
   }
 
   private apiUrl(path: string): string {
-    const normalizedPath = path.replace(/^\/+/, '');
-
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      return `/api/${normalizedPath}`;
-    }
-
-    return `${railwayApiBase}/${normalizedPath}`;
+    return buildApiUrl(path);
   }
 }

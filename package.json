@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsc -p tsconfig.test.json && node .test-dist/tests/run-tests.js",
     "prebuild": "prisma generate",
     "build": "tsc",
     "build:all": "npm run build && npm run build:frontend",
