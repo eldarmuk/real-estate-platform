@@ -4,9 +4,8 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
-    "build": "npx prisma generate && tsc",
-    "build:netlify": "npm run build",
-    "postbuild:netlify": "node scripts/prepare-netlify.mjs",
+    "build": "ng build",
+    "postbuild": "node scripts/prepare-netlify.mjs",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
   },
