@@ -306,7 +306,7 @@ function parseListing(html: string, url: string): ScrapedListing | null {
   const jsonLd = extractJsonLdPlace($);
 
   const title = firstNonEmpty(buildOfferTitle($), getMeta($, 'og:title'), pageTitle);
-  const rawDescription = firstNonEmpty(cleanText($('#description').text()), jsonLd.description, metaDescription);
+  const rawDescription = cleanDescription(firstNonEmpty(cleanText($('#description').text()), jsonLd.description, metaDescription));
   if (!title || !rawDescription) return null;
 
   const pricePerSqm = parsePricePerSqm(bodyText);
@@ -538,6 +538,16 @@ function normalizeLabel(label: string): string {
 
 function normalizeNumericText(text: string): string {
   return text.replace(/\u00a0/g, ' ').replace(/[\u2013\u2014]/g, '-');
+}
+
+function cleanDescription(text: string | null): string | null {
+  const cleaned = cleanText(text)
+    .replace(/\bZobacz podobne oferty\b.*$/i, '')
+    .replace(/\bKontakt\b.*$/i, '')
+    .replace(/\bOferta dodana\b.*$/i, '')
+    .trim();
+
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function cleanText(text: string | null | undefined): string {
