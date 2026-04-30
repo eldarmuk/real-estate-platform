@@ -110,12 +110,17 @@ button {
 .classic-panel,
 .ai-panel {
   padding: 16px;
+  width: 100%;
 }
 
 .main-search,
 .ai-input-row {
   display: grid;
   gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 132px;
+}
+
+.main-search {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
@@ -133,7 +138,9 @@ textarea {
 }
 
 textarea {
+  display: block;
   min-height: 92px;
+  min-width: 0;
   resize: vertical;
 }
 
@@ -250,7 +257,7 @@ label {
 .cards.grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(286px, 1fr));
 }
 
 .cards.list {
@@ -260,19 +267,25 @@ label {
 
 .listing-card {
   display: grid;
+  grid-template-rows: 190px minmax(0, 1fr);
+  min-width: 0;
   overflow: hidden;
 }
 
 .cards.list .listing-card {
   grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: minmax(180px, auto);
 }
 
 .media {
-  aspect-ratio: 16 / 10;
   background: #e9efeb;
   color: var(--muted);
   display: grid;
+  height: 190px;
+  min-height: 190px;
+  overflow: hidden;
   place-items: center;
+  width: 100%;
 }
 
 .media img {
@@ -284,6 +297,7 @@ label {
 .card-body {
   display: grid;
   gap: 10px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   padding: 14px;
 }
@@ -348,6 +362,7 @@ h2 a {
   display: -webkit-box;
   line-height: 1.55;
   margin: 0;
+  min-height: 4.65em;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
@@ -359,6 +374,14 @@ h2 a {
   gap: 8px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding-top: 10px;
+}
+
+.facts strong,
+.facts span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pagination {

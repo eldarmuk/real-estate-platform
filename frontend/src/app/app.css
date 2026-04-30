@@ -20,14 +20,19 @@
 
 .brand-mark {
   align-items: center;
-  background: linear-gradient(135deg, #73f7c7, #ffffff 55%, #7aa7ff);
-  border-radius: 50%;
-  color: white;
+  background: #16211f;
+  border-radius: 8px;
+  color: #fff;
   display: inline-flex;
-  font-weight: 800;
   height: 36px;
   justify-content: center;
   width: 36px;
+}
+
+.brand-mark svg {
+  fill: currentColor;
+  height: 21px;
+  width: 21px;
 }
 
 nav a {
