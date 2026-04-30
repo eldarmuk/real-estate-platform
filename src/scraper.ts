@@ -28,8 +28,10 @@ const CLEAN_ENABLED = (process.env.SCRAPE_CLEAN ?? 'false').toLowerCase() === 't
 const QUEUE_LINK_LIMIT = Number(process.env.SCRAPE_QUEUE_LIMIT ?? 80);
 const CANDIDATE_TARGET = Number(process.env.SCRAPE_CANDIDATE_TARGET ?? Math.max(MAX_LISTINGS * 5, 300));
 const LOCAL_MODEL_PATH = process.env.LOCAL_LLM_MODEL_PATH ?? path.resolve(process.cwd(), 'models', 'llama-3.1.gguf');
-const LOCAL_MODEL_COMMAND = process.env.LLAMA_CLI_PATH ?? 'llama-cli';
+const LOCAL_MODEL_COMMAND = resolveLocalModelCommand();
 const LOCAL_MODEL_ENABLED = (process.env.LOCAL_LLM_ENRICH ?? 'true').toLowerCase() !== 'false';
+const LOCAL_MODEL_TIMEOUT_MS = Number(process.env.LOCAL_LLM_TIMEOUT_MS ?? 180_000);
+const LOCAL_MODEL_SCHEMA = process.env.LOCAL_LLM_JSON_SCHEMA ?? '{}';
 const START_URLS = (process.env.ADRESOWO_START_URLS?.split(',') ?? DEFAULT_START_URLS)
   .map((url) => url.trim())
   .filter(Boolean);
@@ -394,7 +396,7 @@ async function enrichMissingFields(listing: ScrapedListing): Promise<ScrapedList
 }
 
 function getMissingFieldNames(listing: ScrapedListing): string[] {
-  return ([
+  const missing = ([
     'propertyType',
     'transactionType',
     'location',
@@ -406,17 +408,35 @@ function getMissingFieldNames(listing: ScrapedListing): string[] {
     'rooms',
     'houseType',
   ] as const).filter((field) => listing[field] === null);
+
+  if (listing.propertyType === 'Mieszkanie') {
+    return missing.filter((field) => field !== 'plotSizeSqm' && field !== 'houseType');
+  }
+
+  if (listing.propertyType === 'Dzialka') {
+    return missing.filter((field) => !['rooms', 'houseType', 'constructionYear'].includes(field));
+  }
+
+  return missing;
 }
 
 async function askLocalModelForMissingFields(listing: ScrapedListing, missingFields: string[]): Promise<Partial<ScrapedListing> | null> {
   if (!existsSync(LOCAL_MODEL_PATH)) return null;
 
+  const description = listing.rawDescription.slice(0, 2600);
+  const rawAttributes = JSON.stringify(listing.rawAttributes ?? {});
   const prompt = [
-    'Extract missing real-estate fields from this Polish listing.',
-    'Return only compact JSON. Use null when the value is not explicitly supported by the text.',
+    'You fill missing normalized fields for a scraped Polish real-estate listing.',
+    'Use the TITLE, DESCRIPTION, RAW_ATTRIBUTES, and KNOWN_VALUES below. The DESCRIPTION is the main evidence.',
+    'Return only compact JSON with exactly the missing keys listed in MISSING_KEYS.',
+    'Use a number for numeric fields. Use null only when the value cannot be found or clearly inferred from the provided listing text.',
+    'For rooms, understand Polish phrases such as "2 pokoje", "3-pokojowe", "cztery pokoje", "salon + sypialnia".',
+    'For constructionYear, understand phrases such as "rok budowy", "wybudowany w", "z 2010 roku".',
+    'Do not copy unrelated numbers such as street numbers, phone numbers, listing IDs, plot numbers, or postal codes.',
     'Allowed keys: propertyType, transactionType, location, price, pricePerSqm, sizeSqm, plotSizeSqm, constructionYear, rooms, houseType.',
-    `Missing keys to check: ${missingFields.join(', ')}`,
-    `Known values: ${JSON.stringify({
+    `MISSING_KEYS: ${missingFields.join(', ')}`,
+    `TITLE: ${listing.title}`,
+    `KNOWN_VALUES: ${JSON.stringify({
       title: listing.title,
       propertyType: listing.propertyType,
       transactionType: listing.transactionType,
@@ -429,17 +449,23 @@ async function askLocalModelForMissingFields(listing: ScrapedListing, missingFie
       rooms: listing.rooms,
       houseType: listing.houseType,
     })}`,
-    `Description: ${listing.rawDescription.slice(0, 1800)}`,
+    `RAW_ATTRIBUTES: ${rawAttributes.slice(0, 1800)}`,
+    `DESCRIPTION: ${description}`,
   ].join('\n');
 
   try {
+    console.log(`Local model evidence for ${listing.title}: ${previewText(description)}`);
     const output = await runLocalModel(prompt);
-    return parseLocalModelJson(output);
+    const parsed = parseLocalModelJson(output);
+    if (!parsed) {
+      console.warn(`Local model returned no parseable JSON for ${listing.title}. Output preview: ${previewText(output)}`);
+    }
+    return parsed;
   } catch (error) {
     if (!localModelWarningShown) {
       console.warn(
         `Local model enrichment skipped: ${error instanceof Error ? error.message : error}. ` +
-          'Set LLAMA_CLI_PATH to a llama.cpp compatible executable, or LOCAL_LLM_ENRICH=false to disable this hook.',
+          'Increase LOCAL_LLM_TIMEOUT_MS if it is still loading, or set LOCAL_LLM_ENRICH=false to disable this hook.',
       );
       localModelWarningShown = true;
     }
@@ -449,7 +475,19 @@ async function askLocalModelForMissingFields(listing: ScrapedListing, missingFie
 
 function runLocalModel(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(LOCAL_MODEL_COMMAND, ['-m', LOCAL_MODEL_PATH, '-p', prompt, '-n', '220', '--temp', '0'], {
+    const child = spawn(LOCAL_MODEL_COMMAND, [
+      '-m',
+      LOCAL_MODEL_PATH,
+      '-p',
+      prompt,
+      '-n',
+      '180',
+      '--temp',
+      '0',
+      '--no-display-prompt',
+      '-j',
+      LOCAL_MODEL_SCHEMA,
+    ], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -457,8 +495,8 @@ function runLocalModel(prompt: string): Promise<string> {
     let stderr = '';
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error('local model timed out'));
-    }, Number(process.env.LOCAL_LLM_TIMEOUT_MS ?? 45_000));
+      reject(new Error(`local model timed out after ${LOCAL_MODEL_TIMEOUT_MS}ms. stderr preview: ${previewText(stderr)}`));
+    }, LOCAL_MODEL_TIMEOUT_MS);
 
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk);
@@ -472,24 +510,67 @@ function runLocalModel(prompt: string): Promise<string> {
     });
     child.on('close', (code) => {
       clearTimeout(timeout);
+      // Log returned output for debugging (truncate long streams)
+      const truncate = (s: string, max = 2000) => (s.length > max ? s.slice(0, max) + '\n...[truncated]' : s);
+      if (stdout && stdout.length > 0) console.log(`Local model stdout (len=${stdout.length}):\n${truncate(stdout)}`);
+      if (stderr && stderr.length > 0) console.log(`Local model stderr (len=${stderr.length}):\n${truncate(stderr)}`);
+
       if (code === 0) {
         resolve(stdout);
         return;
       }
-      reject(new Error(stderr.trim() || `local model exited with code ${code}`));
+
+      if (extractLastJsonObject(stdout)) {
+        console.warn(`Local model exited with code ${code}, but returned parseable JSON. Using stdout result.`);
+        resolve(stdout);
+        return;
+      }
+
+      reject(
+        new Error(
+          `local model exited with code ${code}. stdout preview: ${previewText(stdout)} stderr preview: ${previewText(stderr)}`,
+        ),
+      );
     });
   });
 }
 
+function resolveLocalModelCommand(): string {
+  if (process.env.LLAMA_COMPLETION_PATH) return process.env.LLAMA_COMPLETION_PATH;
+  if (process.env.LLAMA_CLI_PATH) return process.env.LLAMA_CLI_PATH.replace(/llama-cli(\.exe)?$/i, 'llama-completion.exe');
+  return 'llama-completion';
+}
+
 function parseLocalModelJson(output: string): Partial<ScrapedListing> | null {
-  const start = output.indexOf('{');
-  const end = output.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
+  const objectText = extractLastJsonObject(output);
+  if (!objectText) return null;
   try {
-    return JSON.parse(output.slice(start, end + 1)) as Partial<ScrapedListing>;
+    return JSON.parse(objectText) as Partial<ScrapedListing>;
   } catch {
     return null;
   }
+}
+
+function extractLastJsonObject(output: string): string | null {
+  let depth = 0;
+  let end = -1;
+
+  for (let index = output.length - 1; index >= 0; index -= 1) {
+    const char = output[index];
+    if (char === '}') {
+      if (depth === 0) end = index;
+      depth += 1;
+    } else if (char === '{') {
+      depth -= 1;
+      if (depth === 0 && end !== -1) return output.slice(index, end + 1);
+    }
+  }
+
+  return null;
+}
+
+function previewText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().slice(0, 500);
 }
 
 function describeEnrichmentChanges(before: ScrapedListing, after: ScrapedListing, checkedFields: string[]): string[] {
