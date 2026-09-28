@@ -1,5 +1,16 @@
 # Real estate platform
 
+A prototype for browsing Polish property listings, saving favorites and searching with filters or a short natural-language request.
+
+Angular · TypeScript · Express · Prisma
+
+AI requests become structured filters over existing listings, with a keyword fallback. The nine offline search tests passed on 28 September 2026; the full deployed flow was not retested.
+
+<details>
+<summary>Setup and technical notes</summary>
+
+# Real estate platform
+
 A TypeScript project for exploring Polish property listings through filters and natural-language requests. It brings together an Angular interface, an Express API, a MySQL/MariaDB database through Prisma, and listing import tools.
 
 ## What you can explore
@@ -90,3 +101,5 @@ For builds, `npm run build` generates Prisma’s client and compiles the backend
 - A generated search plan can misinterpret a request, and relaxed filters may return approximate matches. Check the returned filters and listing details.
 
 [My portfolio](https://eldarmukhtar.ovh/)
+
+</details>
